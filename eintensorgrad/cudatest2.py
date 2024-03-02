@@ -1,44 +1,28 @@
+import math
 import cupy as cp
 import numpy as np
-import math
-
-from typing import Final
-from functools import reduce
-from itertools import product
+from time import perf_counter
+from string import ascii_letters
+from copy import copy
 from abc import ABC, abstractmethod
+from typing import Final
+from itertools import product
+from functools import reduce
+import backend as be
 
-Data_t = np.ndarray
+
+def make_indices(alphabet: set[str], *ns):
+    alphabet = copy(alphabet)
+    return ["".join(alphabet.pop() for _ in range(n)) for n in ns]
 
 
 class CudaTensorTemplate(ABC):
     shape: Final[tuple[int]]
-    prog: str
+    expr: str
 
     @abstractmethod
-    def eval(self):
+    def eval(self) -> be.Delta:
         pass
-
-
-zeros = np.zeros
-ones = np.ones
-array = np.array
-random = lambda shape: np.random.normal(0.0, 1.0, shape)
-allclose = np.allclose
-
-heaviside = np.heaviside
-max = np.maximum
-einsum = np.einsum
-
-
-# TODO: This implementation is too slow. Delta shouldn't be realized unless in seed. It should be a
-# function N^k -> {0,1} used in einsum (How to make einsum which supports functions <- custom cuda
-# kernel?)
-def delta(shape):
-    dim = len(shape)
-    out = ones(shape + shape)
-    for x in product(*[range(n) for n in shape + shape]) if dim > 0 else []:
-        out[x] = 1 if reduce(lambda a, b: a and b, [x[i] == x[dim + i] for i in range(dim)]) else 0
-    return out
 
 
 class Delta(CudaTensorTemplate):
@@ -55,7 +39,7 @@ class Delta(CudaTensorTemplate):
 
             self.expr = _expr
 
-    def eval(self) -> Data_t:
+    def eval(self) -> be.Delta:
         if self.shape == ():
             return np.array(1.0)
 
@@ -81,5 +65,26 @@ __global__ void delta(float * C, const int size)
 
         delta(grid_size, block_size, (c_gpu, size))
         c_cpu = cp.asnumpy(c_gpu).reshape(self.shape)
-
         return c_cpu
+
+
+def delta1(shape):
+    dim = len(shape)
+    out = np.ones(shape + shape)
+    for x in product(*[range(n) for n in shape + shape]) if dim > 0 else []:
+        out[x] = 1 if reduce(lambda a, b: a and b, [x[i] == x[dim + i] for i in range(dim)]) else 0
+    return out
+
+
+if __name__ == "__main__":
+    shape = ()
+    delta = Delta(shape)
+    time_s = perf_counter()
+    delta.eval()
+    time_e = perf_counter()
+    print(f"{1_000 * (time_e - time_s):.3f}ms")
+
+    time_s = perf_counter()
+    delta1(shape)
+    time_e = perf_counter()
+    print(f"{1_000 * (time_e - time_s):.3f}ms")

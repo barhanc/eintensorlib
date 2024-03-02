@@ -7,15 +7,15 @@ from copy import copy
 
 
 class Expression(ABC):
-    data: be.Data
+    data: be.Data_t
     shape: Final[tuple[int]]
 
     @abstractmethod
-    def eval(self) -> be.Data:
+    def eval(self) -> be.Data_t:
         pass
 
     @abstractmethod
-    def grad(self, seed: be.Data) -> None:
+    def grad(self, seed: be.Data_t) -> None:
         pass
 
     @abstractmethod
@@ -35,36 +35,23 @@ class Expression(ABC):
     def __rmul__(self, other):
         return Mul(self, other)
 
-    def __sub__(self, other):
-        return Add(self, -1 * other)
-
     def __pow__(self, other):
         if not isinstance(other, float):
             raise TypeError("Unsupported operand type(s) for **")
         return Pow(self, other)
 
-    def __truediv__(self, other):
-        if not isinstance(other, float):
-            raise TypeError("Unsupported operand type(s) for /")
-        return self * other**-1.0
-
-    def __rtruediv__(self, other):
-        if not isinstance(other, float):
-            raise TypeError("Unsupported operand type(s) for /")
-        return other * self**-1.0
-
 
 class Tensor(Expression):
-    def __init__(self, data: be.Data):
-        self.data: be.Data = data
+    def __init__(self, data: be.Data_t):
+        self.data: be.Data_t = data
         self.shape = data.shape
-        self.partial: be.Data = None
+        self.partial: be.Data_t = None
 
     def eval(self):
         print("leaf")
         return self.data
 
-    def grad(self, seed: be.Data = None):
+    def grad(self, seed: be.Data_t = None):
         seed = seed if seed is not None else be.delta(self.shape)
         self.partial = self.partial + seed if self.partial is not None else seed
 
@@ -83,14 +70,14 @@ class Add(Expression):
         self.B = B
 
         assert A.shape == B.shape, "You can only add tensors of the same shape"
-        self.data: be.Data = None
+        self.data: be.Data_t = None
         self.shape = A.shape
 
     def eval(self):
         self.data = self.A.eval() + self.B.eval() if self.data is None else self.data
         return self.data
 
-    def grad(self, seed: be.Data = None):
+    def grad(self, seed: be.Data_t = None):
         seed = seed if seed is not None else be.delta(self.shape)
         self.A.grad(seed)
         self.B.grad(seed)
@@ -107,7 +94,7 @@ class Einsum(Expression):
         self.B = B
         self.indices: str = indices
 
-        self.data: be.Data = None
+        self.data: be.Data_t = None
         self.shape = get_shape(indices, A.shape, B.shape)
 
     def eval(self):
@@ -118,7 +105,7 @@ class Einsum(Expression):
         )
         return self.data
 
-    def grad(self, seed: be.Data = None):
+    def grad(self, seed: be.Data_t = None):
         seed = seed if seed is not None else be.delta(self.shape)
         alphabet = set(ascii_letters) - set(self.indices)
         ij, k = self.indices.split("->")
@@ -152,14 +139,14 @@ class Mul(Expression):
         self.A = A
         self.scalar = scalar
 
-        self.data: be.Data = None
+        self.data: be.Data_t = None
         self.shape = A.shape
 
     def eval(self):
         self.data = self.scalar * self.A.eval() if self.data is None else self.data
         return self.data
 
-    def grad(self, seed: be.Data = None):
+    def grad(self, seed: be.Data_t = None):
         seed = seed if seed is not None else be.delta(self.shape)
         self.A.grad(self.scalar * seed)
 
@@ -174,14 +161,14 @@ class Function1D(Expression):
 
     def __init__(self, A: Expression):
         self.A = A
-        self.data: be.Data = None
+        self.data: be.Data_t = None
         self.shape = A.shape
 
     def eval(self):
         self.data = self.f(self.A.eval()) if self.data is None else self.data
         return self.data
 
-    def grad(self, seed: be.Data = None):
+    def grad(self, seed: be.Data_t = None):
         seed = seed if seed is not None else be.delta(self.shape)
         a, b = make_indices(set(ascii_letters), len(seed.shape) - len(self.shape), len(self.shape))
         new_seed = be.einsum(f"{b+a},{b}->{b+a}", seed, self.df(self.A.eval()))
