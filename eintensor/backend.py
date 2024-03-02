@@ -10,11 +10,14 @@ array = np.array
 random = lambda shape: np.random.normal(0.0, 1.0, shape)
 allclose = np.allclose
 
-max = np.maximum
 heaviside = np.heaviside
+max = np.maximum
 einsum = np.einsum
 
 
+# TODO: This implementation is too slow. Delta shouldn't be realized unless in seed. It should be a
+# function N^k -> {0,1} used in einsum (How to make einsum which supports functions <- custom cuda
+# kernel?)
 def delta(shape):
     dim = len(shape)
     out = ones(shape + shape)

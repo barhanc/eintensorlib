@@ -3,7 +3,7 @@ import eintensor.backend as be
 from abc import abstractmethod, ABC
 from typing import Final, Callable
 from string import ascii_letters
-from copy import deepcopy
+from copy import copy
 
 
 class Expression(ABC):
@@ -11,15 +11,15 @@ class Expression(ABC):
     shape: Final[tuple[int]]
 
     @abstractmethod
-    def eval(self):
+    def eval(self) -> be.Data:
         pass
 
     @abstractmethod
-    def grad(self, seed: be.Data):
+    def grad(self, seed: be.Data) -> None:
         pass
 
     @abstractmethod
-    def null(self):
+    def null(self) -> None:
         pass
 
     def __add__(self, other):
@@ -61,7 +61,7 @@ class Tensor(Expression):
         self.partial: be.Data = None
 
     def eval(self):
-        # print("leaf")
+        print("leaf")
         return self.data
 
     def grad(self, seed: be.Data = None):
@@ -248,5 +248,5 @@ def get_shape(indices: str, sh1: tuple[int], sh2: tuple[int]):
 
 
 def make_indices(alphabet: set[str], *ns):
-    alphabet = deepcopy(alphabet)
+    alphabet = copy(alphabet)
     return ["".join(alphabet.pop() for _ in range(n)) for n in ns]
