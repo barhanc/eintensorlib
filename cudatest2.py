@@ -38,14 +38,10 @@ class Delta(LazyData_t):
         return f"""({" && ".join(f"( {i} == {j} )" for i, j in double_indices)} ? 1 : 0)"""
 
     def eval(self):
-        # if self.shape == ():
-        #     return cp.array(1, dtype=cp.float32)
-
         args = [
             f"(item % {math.prod(self.shape[:i])}) / {math.prod(self.shape[:i-1])}"
             for i in range(1, len(self.shape) + 1)
         ]
-        print(args)
         prog = f"""
 extern "C"
 __global__ void delta(float *C, const int size){{

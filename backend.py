@@ -72,57 +72,6 @@ class Ones(LazyData_t):
         return cp.ones(self.shape, dtype=cp.float32)
 
 
-def get_shape(indices: str, *Ts: Data_t | LazyData_t):
-    sum_inds, free_inds = indices.split("->")
-    sum_inds = sum_inds.split(",")
-    assert len(sum_inds) == len(Ts), "Number of index expressions doesn't match number of operands"
-    shape = [None for _ in free_inds]
-    for i, free_indx in enumerate(free_inds):
-        for j, T in enumerate(Ts):
-            for k, sum_indx in sum_inds[j]:
-                if sum_indx == free_indx and shape[i] is None:
-                    shape[i] = T.shape[k]
-                elif sum_indx == free_indx:
-                    assert shape[i] == T.shape[k], "Axis dimensions do not match"
-    for s in shape:
-        assert s is not None, "One of the axis is None"
-    return shape
-
-
-def myeinsum(indices: str, *Ts: Data_t | LazyData_t):
-    shape = get_shape(indices, *Ts)
-    sum_inds, free_inds = indices.split("->")
-    sum_inds = sum_inds.split(",")
-
-    fun_sign = ", ".join(f"float *T{i}" for i, T in enumerate(Ts) if isinstance(T, Data_t))
-    free_inds = f"int {', '.join(free_inds.split())} = "
-    free_inds += f"""{", ".join([f"(item % {math.prod(shape[:i])}) / {math.prod(shape[:i-1])}"
-            for i in range(1, len(shape) + 1)
-        ])}"""
-    free_inds = free_inds if shape != () else ""
-
-    prog = f"""
-extern "C"
-__global__ void einsum({fun_sign}, float *Res, const int size){{
-    int item = (blockIdx.x * blockDim.x) + threadIdx.x;
-    {free_inds};
-    if ( item < size ){{
-      
-   }}
-}}
-"""
-
-    shape = None
-
-    einsum_gpu = cp.RawKernel(prog, "vector_add")
-    size = math.prod(shape)
-    result = cp.zeros(shape if shape == () else size, dtype=cp.float32)
-
-    threads_per_block = 1024
-    grid_size = (int(math.ceil(size / threads_per_block)), 1, 1)
-    block_size = (threads_per_block, 1, 1)
-
-
 zeros = np.zeros
 ones = np.ones
 array = np.array
