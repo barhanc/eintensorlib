@@ -1,7 +1,7 @@
-import eintensor.backend as be
+import eintensorgrad.backend as be
 import numpy as np
 from itertools import product
-from eintensor.tensor import Tensor, einsum, relu
+from eintensorgrad.tensor import Tensor, einsum, relu
 from copy import deepcopy
 
 np.set_printoptions(precision=2)
