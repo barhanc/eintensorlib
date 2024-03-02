@@ -35,6 +35,9 @@ class Expression(ABC):
     def __rmul__(self, other):
         return Mul(self, other)
 
+    def __sub__(self, other):
+        return self + -1 * other
+
     def __pow__(self, other):
         if not isinstance(other, float):
             raise TypeError("Unsupported operand type(s) for **")
@@ -48,7 +51,7 @@ class Tensor(Expression):
         self.partial: be.Data_t = None
 
     def eval(self):
-        print("leaf")
+        # print("leaf")
         return self.data
 
     def grad(self, seed: be.Data_t = None):
