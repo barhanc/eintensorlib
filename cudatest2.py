@@ -17,7 +17,7 @@ def make_indices(alphabet: set[str], *ns):
 Data_t = np.ndarray
 
 
-class CudaTensorTemplate(ABC):
+class LazyData_t(ABC):
     shape: Final[tuple[int]]
     expr: str
 
@@ -26,33 +26,34 @@ class CudaTensorTemplate(ABC):
         pass
 
 
-class Delta(CudaTensorTemplate):
+class Delta(LazyData_t):
     def __init__(self, shape):
         self.shape = shape + shape
 
-        def _expr(indices: list[str]):
-            assert (n := len(indices)) == len(self.shape)
-            double_indices = zip(indices[: n // 2], indices[n // 2 :])
-            return f"""({" && ".join(f"( {i} == {j} )" for i, j in double_indices)} ? 1 : 0)"""
-
-        self.expr = _expr if self.shape != () else lambda _: "1"
-
-    def eval(self) -> Data_t:
+    def expr(self, indices):
+        assert (n := len(indices)) == len(self.shape)
         if self.shape == ():
-            return cp.array(1.0, dtype=cp.float32)
+            return "1"
+        double_indices = zip(indices[: n // 2], indices[n // 2 :])
+        return f"""({" && ".join(f"( {i} == {j} )" for i, j in double_indices)} ? 1 : 0)"""
+
+    def eval(self):
+        # if self.shape == ():
+        #     return cp.array(1, dtype=cp.float32)
 
         args = [
             f"(item % {math.prod(self.shape[:i])}) / {math.prod(self.shape[:i-1])}"
             for i in range(1, len(self.shape) + 1)
         ]
+        print(args)
         prog = f"""
 extern "C"
-__global__ void delta(float * C, const int size){{
-  int item = (blockIdx.x * blockDim.x) + threadIdx.x;   
-  if ( item < size ) C[item] = {self.expr(args)};
+__global__ void delta(float *C, const int size){{
+    int item = (blockIdx.x * blockDim.x) + threadIdx.x;   
+    if ( item < size ) C[item] = {self.expr(args)};
 }}
 """
-        delta = cp.RawKernel(prog, "delta")
+        delta_gpu = cp.RawKernel(prog, "delta")
         size = math.prod(self.shape)
         c_gpu = cp.zeros(size, dtype=cp.float32)
 
@@ -60,7 +61,7 @@ __global__ void delta(float * C, const int size){{
         grid_size = (int(math.ceil(size / threads_per_block)), 1, 1)
         block_size = (threads_per_block, 1, 1)
 
-        delta(grid_size, block_size, (c_gpu, size))
+        delta_gpu(grid_size, block_size, (c_gpu, size))
         return c_gpu.reshape(self.shape)
 
 
@@ -73,7 +74,7 @@ def delta1(shape):
 
 
 if __name__ == "__main__":
-    shape = (4,)
+    shape = ()
     delta = Delta(shape)
     # print(delta.prog)
     time_s = perf_counter()

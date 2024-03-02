@@ -1,4 +1,4 @@
-import eintensorgrad.backend as be
+import backend as be
 
 from abc import abstractmethod, ABC
 from typing import Final, Callable
