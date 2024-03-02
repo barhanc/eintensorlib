@@ -4,6 +4,7 @@ from time import perf_counter
 from typing import Final, Callable, Iterable
 from abc import ABC, abstractmethod
 
+cp.set_printoptions(2)
 
 Data_t = cp.ndarray
 
@@ -41,8 +42,8 @@ class Delta(LazyData_t):
         ]
         prog = f"""
 extern "C"
-__global__ void delta(float *C, const int size){{
-    int item = (blockIdx.x * blockDim.x) + threadIdx.x;
+__global__ void delta(float *C, const long size){{
+    long item = (blockIdx.x * blockDim.x) + threadIdx.x;
     if ( item < size ) C[item] = {self.expr(args)};
 }}
 """
@@ -56,18 +57,6 @@ __global__ void delta(float *C, const int size){{
 
         delta_gpu(grid_size, block_size, (c_gpu, size))
         return c_gpu.reshape(self.shape)
-
-
-class Ones(LazyData_t):
-    def __init__(self, shape):
-        self.shape = shape
-
-    def expr(self, indices):
-        assert len(indices) == len(self.shape)
-        return "1"
-
-    def eval(self):
-        return cp.ones(self.shape, dtype=cp.float32)
 
 
 def get_bounds(indices: str, *Ts: Data_t | LazyData_t) -> dict[str, int]:
@@ -100,18 +89,16 @@ def einsum(indices: str, *Ts: Data_t | LazyData_t):
         f"(item % {math.prod(shape[:i])}) / {math.prod(shape[:i-1])}"
         for i in range(1, len(shape) + 1)
     ]
-
     free_inds_init = (
         ""
         if shape == ()
-        else ", ".join(f"{rhs_idx} = {value}" for rhs_idx, value in zip(rhs_inds, values))
+        else "long " + ", ".join(f"{rhs_idx} = {value}" for rhs_idx, value in zip(rhs_inds, values))
     )
-
     for_loops = "\n".join(
         f"for(long {dummy_idx}=0; {dummy_idx}<{bounds[dummy_idx]}; {dummy_idx}++){{"
         for dummy_idx in (set("".join(lhs_inds)) - set(rhs_inds))
     )
-    lin_idx = lambda indices: "+ ".join(
+    lin_idx = lambda indices: " + ".join(
         f"{i}*{math.prod([bounds[j] for j in indices[:n]])}" for n, i in enumerate(indices)
     )
     ein_expr = " * ".join(
@@ -122,21 +109,19 @@ def einsum(indices: str, *Ts: Data_t | LazyData_t):
         )
         for n, T in enumerate(Ts)
     )
-
     prog = f"""
 extern "C"
 __global__ void einsum({fun_sign}, float *Res, const long size){{
 long item = (blockIdx.x * blockDim.x) + threadIdx.x;
-long {free_inds_init};
+{free_inds_init};
 float acc = 0;
 
 if ( item < size ){{
 {for_loops}
     acc += {ein_expr};
 {"}"*len(set("".join(lhs_inds)) - set(rhs_inds))}
-}}
-
 Res[item] = acc;
+}}
 }}
 """
 
@@ -148,19 +133,48 @@ Res[item] = acc;
     threads_per_block = 1024
     grid_size = (int(math.ceil(size / threads_per_block)), 1, 1)
     block_size = (threads_per_block, 1, 1)
-    einsum_gpu(grid_size, block_size, (*[T for T in Ts if isinstance(T, Data_t)], result_gpu, size))
+    einsum_gpu(
+        grid_size,
+        block_size,
+        (*[T.flatten("F") for T in Ts if isinstance(T, Data_t)], result_gpu, size),
+    )
 
-    return result_gpu.reshape(shape)
+    return result_gpu.reshape(shape, order="F")
 
+
+relu = lambda x: cp.maximum(0, x)
 
 if __name__ == "__main__":
-    T1 = cp.ones(10, dtype=cp.float32)
-    a = cp.array(2, dtype=cp.float32)
-    delta = Delta((10,))
+
+    # A = cp.random.rand(5, 5, dtype=cp.float32)
+    # print(einsum("ij,jk->ik", A, A))
+    # print(cp.einsum("ij,jk->ik", A, A))
+
+    X = cp.random.rand(800, 400, dtype=cp.float32)
+    W1 = cp.random.rand(600, 800, dtype=cp.float32)
+    W2 = cp.random.rand(500, 600, dtype=cp.float32)
 
     time_s = perf_counter()
-    result = einsum(",ij,j->i", a, delta, T1)
+    y = einsum("ij,jk->ik", W1, X)
+    y = einsum("ij,jk->ik", W2, y)
+    loss = einsum("ij->", y**2)
     time_e = perf_counter()
-    print(f"{1_000 *(time_e - time_s):.2f}ms")
-    print(result)
-    print(cp.einsum(",ij,j->i", a, delta.eval(), T1))
+    print(f"[{1_000 * (time_e - time_s):.2f}ms] loss = ", loss)
+
+    print("\n", "=" * 80, "\n")
+
+    time_s = perf_counter()
+    z = cp.einsum("ij,jk->ik", W1, X)
+    z = cp.einsum("ij,jk->ik", W2, z)
+    loss = cp.einsum("ij->", z**2)
+    time_e = perf_counter()
+    print(f"[{1_000 * (time_e - time_s):.2f}ms] loss = ", loss)
+
+    print(cp.allclose(y, z))
+
+    print("\n", "=" * 80, "\n")
+
+    time_s = perf_counter()
+    loss = cp.sum((W2 @ W1 @ X) ** 2)
+    time_e = perf_counter()
+    print(f"[{1_000 * (time_e - time_s):.2f}ms] loss = ", loss)

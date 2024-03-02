@@ -14,7 +14,7 @@ loss_fn = lambda X, W1, W2, B1, B2: einsum(
     "ij,ij->", F(X, W1, W2, B1, B2) ** 2.0, I((W2.shape[0], X.shape[1]))
 )
 
-X = Tensor(be.random(8, 1))
+X = Tensor(be.normal((8, 1)))
 W1 = Tensor(be.random(4, 8))
 B1 = Tensor(be.random(4))
 W2 = Tensor(be.random(5, 4))
