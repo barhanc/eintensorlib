@@ -1,10 +1,9 @@
-import eintensorgrad.backend as be
-import numpy as np
+import backend as be
 from itertools import product
-from eintensorgrad.tensor import Tensor, einsum, relu
+from tensor import Tensor, einsum, relu
 from copy import deepcopy
 
-np.set_printoptions(precision=2)
+be.set_printoptions(precision=2)
 I = lambda shape: Tensor(be.ones(shape))
 
 # Nin, B -> Nout, B
