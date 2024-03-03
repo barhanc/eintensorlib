@@ -16,10 +16,10 @@ F = lambda X, W1, W2, B1, B2: F2(F1(X, W1, B1), W2, B2)
 loss_fn = lambda X, W1, W2, B1, B2: Einsum(
     "ij,ij->", F(X, W1, W2, B1, B2) ** 2.0, I((W2.shape[0], X.shape[1]))
 )
-Tr = lambda X: Einsum("ii,i->", X, I(min(X.shape)))
+Tr = lambda X: Einsum("iiii,i->", X, I(min(X.shape)))
 f = Tr
 
-X = Tensor(be.random.normal(size=(6, 6)))
+X = Tensor(be.random.normal(size=(6, 6, 6, 6)))
 W1 = Tensor(be.random.normal(size=(8, 10)))
 B1 = Tensor(be.random.normal(size=(8,)))
 W2 = Tensor(be.random.normal(size=(6, 8)))
@@ -30,7 +30,7 @@ time_s = perf_counter()
 loss = f(X)
 time_e = perf_counter()
 print(f"Forward pass: {1_000 * (time_e - time_s):.2f}ms", "Loss: ", loss.eval())
-print(be.trace(X.eval()))
+print(be.einsum("iiii->", X.eval()))
 
 time_s = perf_counter()
 loss.grad()

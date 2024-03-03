@@ -7,8 +7,6 @@ Data_t = cp.ndarray
 
 
 class LazyData_t(ABC):
-    shape: Final[tuple[int]]
-
     @abstractmethod
     def expr(self, indices: list[str]) -> str:
         pass
@@ -188,8 +186,6 @@ if __name__ == "__main__":
     loss = cp.einsum("ij->", z**2)
     time_e = perf_counter()
     print(f"[{1_000 * (time_e - time_s):.2f}ms] loss = ", loss)
-
-    print(cp.allclose(y, z))
 
     print("\n", "=" * 80, "\n")
 

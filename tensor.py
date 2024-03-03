@@ -4,6 +4,7 @@ from abc import abstractmethod, ABC
 from typing import Final, Callable
 from string import ascii_letters
 from copy import copy
+from itertools import combinations
 
 
 class Expression(ABC):
@@ -110,7 +111,7 @@ class Einsum(Expression):
         )
         return self.data
 
-    # TODO: It can be made faster without deltas
+    # TODO: It can be made faster with delta reduction
     def grad(self, seed: be.Data_t = None):
         seed = seed if seed is not None else be.delta(self.shape)
         alphabet = set(ascii_letters) - set(self.indices)
@@ -119,6 +120,12 @@ class Einsum(Expression):
         i, j = ij.split(",")
         a, b = make_indices(alphabet, len(seed.shape) - len(self.shape), len(self.A.shape))
         print(f"{k+a},{b+i},{j}->{b+a}")
+
+        j_ = j.translate(str.maketrans({k: v for k, v in zip(i, b)}))
+        k_ = k.translate(str.maketrans({k: v for k, v in zip(i, b)}))
+        equal = ["".join(nb for nb, ni in zip(b, i) if ni == n) for n in set(i)]
+        print(f"{k_+a},{equal},{j_}->{b+a}")
+
         new_seed = be.einsum(f"{k+a},{b+i},{j}->{b+a}", seed, be.Delta(self.A.shape), self.B.eval())
         self.A.grad(new_seed)
 
