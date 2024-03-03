@@ -9,12 +9,16 @@ max = cp.maximum
 zeros = cp.zeros
 ones = cp.ones
 array = cp.array
-random = cp.random.rand
-normal = lambda shape: cp.random.normal(size=shape)
+random = cp.random
 allclose = cp.allclose
 heaviside = cp.heaviside
 einsum = cp.einsum
 float32 = cp.float32
+float64 = cp.float64
+relu = lambda x: cp.maximum(0, x)
+outer = cp.outer
+sum = cp.sum
+abs = cp.abs
 
 
 def delta(shape):
@@ -23,3 +27,7 @@ def delta(shape):
     for x in product(*[range(n) for n in shape + shape]) if dim > 0 else []:
         out[x] = 1 if reduce(lambda a, b: a and b, [x[i] == x[dim + i] for i in range(dim)]) else 0
     return out
+
+
+def Delta(shape):
+    return delta(shape)

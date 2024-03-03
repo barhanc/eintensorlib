@@ -1,5 +1,5 @@
-import backend as be
-
+# import backend as be
+import backend_einsum as be
 from abc import abstractmethod, ABC
 from typing import Final, Callable
 from string import ascii_letters
@@ -36,6 +36,8 @@ class Expression(ABC):
         return Mul(self, other)
 
     def __sub__(self, other):
+        if not isinstance(other, Expression):
+            raise TypeError("Unsupported operand type(s) for -")
         return self + -1 * other
 
     def __pow__(self, other):
@@ -115,11 +117,11 @@ class Einsum(Expression):
         i, j = ij.split(",")
 
         a, b = make_indices(alphabet, len(seed.shape) - len(self.shape), len(self.A.shape))
-        new_seed = be.einsum(f"{k+a},{b+i},{j}->{b+a}", seed, be.delta(self.A.shape), self.B.eval())
+        new_seed = be.einsum(f"{k+a},{b+i},{j}->{b+a}", seed, be.Delta(self.A.shape), self.B.eval())
         self.A.grad(new_seed)
 
         a, b = make_indices(alphabet, len(seed.shape) - len(self.shape), len(self.B.shape))
-        new_seed = be.einsum(f"{k+a},{i},{b+j}->{b+a}", seed, self.A.eval(), be.delta(self.B.shape))
+        new_seed = be.einsum(f"{k+a},{i},{b+j}->{b+a}", seed, self.A.eval(), be.Delta(self.B.shape))
         self.B.grad(new_seed)
 
     def null(self):

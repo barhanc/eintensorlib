@@ -1,10 +1,7 @@
-import math
 import cupy as cp
-from time import perf_counter
-from typing import Final, Callable, Iterable
+import math
 from abc import ABC, abstractmethod
-
-cp.set_printoptions(2)
+from typing import Final
 
 Data_t = cp.ndarray
 
@@ -34,7 +31,7 @@ class Delta(LazyData_t):
 
     def eval(self):
         if self.shape == ():
-            return cp.array(1, dtype=cp.float32)
+            return cp.array(1, dtype=float)
 
         args = [
             f"(item % {math.prod(self.shape[:i])}) / {math.prod(self.shape[:i-1])}"
@@ -42,16 +39,16 @@ class Delta(LazyData_t):
         ]
         prog = f"""
 extern "C"
-__global__ void delta(float *C, const long size){{
+__global__ void delta(double *C, const long size){{
     long item = (blockIdx.x * blockDim.x) + threadIdx.x;
     if ( item < size ) C[item] = {self.expr(args)};
 }}
 """
         delta_gpu = cp.RawKernel(prog, "delta")
         size = math.prod(self.shape)
-        c_gpu = cp.zeros(size, dtype=cp.float32)
+        c_gpu = cp.zeros(size, dtype=float)
 
-        threads_per_block = 1024
+        threads_per_block = 128
         grid_size = (int(math.ceil(size / threads_per_block)), 1, 1)
         block_size = (threads_per_block, 1, 1)
 
@@ -59,12 +56,16 @@ __global__ void delta(float *C, const long size){{
         return c_gpu.reshape(self.shape)
 
 
+def delta(shape):
+    return Delta(shape).eval()
+
+
 def get_bounds(indices: str, *Ts: Data_t | LazyData_t) -> dict[str, int]:
     bounds = {indx: None for indx in set(indices) - set(",->")}
-    lhs_expr = indices.split("->")[0].split(",")
-    assert len(lhs_expr) == len(Ts), "Number of LHS expressions doesn't match number of operands"
+    lhs_exprs = indices.split("->")[0].split(",")
+    assert len(lhs_exprs) == len(Ts), "Number of LHS expressions doesn't match number of operands"
 
-    for indices, T in zip(lhs_expr, Ts):
+    for indices, T in zip(lhs_exprs, Ts):
         for i, index in enumerate(indices):
             if bounds[index] is None:
                 bounds[index] = T.shape[i]
@@ -76,15 +77,19 @@ def get_bounds(indices: str, *Ts: Data_t | LazyData_t) -> dict[str, int]:
     return bounds
 
 
+def get_shape(indices: str, *Ts: Data_t | LazyData_t) -> tuple[int]:
+    rhs_expr = indices.split("->")[1]
+    bounds = get_bounds(indices, *Ts)
+    return tuple(bounds[i] for i in rhs_expr)
+
+
 def einsum(indices: str, *Ts: Data_t | LazyData_t):
     bounds = get_bounds(indices, *Ts)
     rhs_inds = indices.split("->")[1]
     lhs_inds = indices.split("->")[0].split(",")
     shape = tuple(bounds[i] for i in rhs_inds)
 
-    print(lhs_inds, rhs_inds, bounds, shape)
-
-    fun_sign = ", ".join(f"float *T{i}" for i, T in enumerate(Ts) if isinstance(T, Data_t))
+    fun_sign = ", ".join(f"double *T{i}" for i, T in enumerate(Ts) if isinstance(T, Data_t))
     values = [
         f"(item % {math.prod(shape[:i])}) / {math.prod(shape[:i-1])}"
         for i in range(1, len(shape) + 1)
@@ -111,48 +116,62 @@ def einsum(indices: str, *Ts: Data_t | LazyData_t):
     )
     prog = f"""
 extern "C"
-__global__ void einsum({fun_sign}, float *Res, const long size){{
+__global__ void einsum({fun_sign}, double *Res, const long size){{
 long item = (blockIdx.x * blockDim.x) + threadIdx.x;
-{free_inds_init};
-float acc = 0;
 
 if ( item < size ){{
+{free_inds_init};
+double acc = 0;
 {for_loops}
-    acc += {ein_expr};
+acc += {ein_expr};
 {"}"*len(set("".join(lhs_inds)) - set(rhs_inds))}
 Res[item] = acc;
 }}
 }}
 """
 
+    # DEBUG
+    # print(*[T.flatten("F") for T in Ts if isinstance(T, Data_t)])
+    # print(lhs_inds, rhs_inds, bounds, shape)
     print(prog)
+
     einsum_gpu = cp.RawKernel(prog, "einsum")
     size = math.prod(shape)
-    result_gpu = cp.zeros(shape if shape == () else size, dtype=cp.float32)
+    result_gpu = cp.zeros(shape if shape == () else size, dtype=float)
 
-    threads_per_block = 1024
+    threads_per_block = 128
     grid_size = (int(math.ceil(size / threads_per_block)), 1, 1)
     block_size = (threads_per_block, 1, 1)
+
     einsum_gpu(
         grid_size,
         block_size,
         (*[T.flatten("F") for T in Ts if isinstance(T, Data_t)], result_gpu, size),
     )
-
     return result_gpu.reshape(shape, order="F")
 
 
+set_printoptions = cp.set_printoptions
+max = cp.maximum
+zeros = cp.zeros
+ones = cp.ones
+array = cp.array
+random = cp.random
+allclose = cp.allclose
+heaviside = cp.heaviside
+float64 = cp.float64
 relu = lambda x: cp.maximum(0, x)
+outer = cp.outer
+sum = cp.sum
 
 if __name__ == "__main__":
+    from time import perf_counter
 
-    # A = cp.random.rand(5, 5, dtype=cp.float32)
-    # print(einsum("ij,jk->ik", A, A))
-    # print(cp.einsum("ij,jk->ik", A, A))
+    cp.set_printoptions(2)
 
-    X = cp.random.rand(800, 400, dtype=cp.float32)
-    W1 = cp.random.rand(600, 800, dtype=cp.float32)
-    W2 = cp.random.rand(500, 600, dtype=cp.float32)
+    X = cp.random.rand(80, 40)
+    W1 = cp.random.rand(60, 80)
+    W2 = Delta((60,))
 
     time_s = perf_counter()
     y = einsum("ij,jk->ik", W1, X)
@@ -165,7 +184,7 @@ if __name__ == "__main__":
 
     time_s = perf_counter()
     z = cp.einsum("ij,jk->ik", W1, X)
-    z = cp.einsum("ij,jk->ik", W2, z)
+    z = cp.einsum("ij,jk->ik", W2.eval(), z)
     loss = cp.einsum("ij->", z**2)
     time_e = perf_counter()
     print(f"[{1_000 * (time_e - time_s):.2f}ms] loss = ", loss)
@@ -175,6 +194,6 @@ if __name__ == "__main__":
     print("\n", "=" * 80, "\n")
 
     time_s = perf_counter()
-    loss = cp.sum((W2 @ W1 @ X) ** 2)
+    loss = cp.sum((W2.eval() @ W1 @ X) ** 2)
     time_e = perf_counter()
     print(f"[{1_000 * (time_e - time_s):.2f}ms] loss = ", loss)
