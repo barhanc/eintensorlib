@@ -110,17 +110,21 @@ class Einsum(Expression):
         )
         return self.data
 
+    # TODO: It can be made faster without deltas
     def grad(self, seed: be.Data_t = None):
         seed = seed if seed is not None else be.delta(self.shape)
         alphabet = set(ascii_letters) - set(self.indices)
         ij, k = self.indices.split("->")
-        i, j = ij.split(",")
 
+        i, j = ij.split(",")
         a, b = make_indices(alphabet, len(seed.shape) - len(self.shape), len(self.A.shape))
+        print(f"{k+a},{b+i},{j}->{b+a}")
         new_seed = be.einsum(f"{k+a},{b+i},{j}->{b+a}", seed, be.Delta(self.A.shape), self.B.eval())
         self.A.grad(new_seed)
 
+        i, j = ij.split(",")
         a, b = make_indices(alphabet, len(seed.shape) - len(self.shape), len(self.B.shape))
+        print(f"{k+a},{i},{b+j}->{b+a}")
         new_seed = be.einsum(f"{k+a},{i},{b+j}->{b+a}", seed, self.A.eval(), be.Delta(self.B.shape))
         self.B.grad(new_seed)
 
@@ -128,10 +132,6 @@ class Einsum(Expression):
         self.data = None
         self.A.null()
         self.B.null()
-
-
-def einsum(indices: str, A: Expression, B: Expression):
-    return Einsum(indices, A, B)
 
 
 # -----------------------------------
@@ -196,10 +196,6 @@ class ReLU(Function1D):
         self.f = lambda x: be.max(0, x)
         self.df = lambda x: be.heaviside(x, 0)
         super().__init__(A)
-
-
-def relu(A: Expression):
-    return ReLU(A)
 
 
 # -----------------------------------

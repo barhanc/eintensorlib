@@ -133,7 +133,7 @@ Res[item] = acc;
     # DEBUG
     # print(*[T.flatten("F") for T in Ts if isinstance(T, Data_t)])
     # print(lhs_inds, rhs_inds, bounds, shape)
-    print(prog)
+    # print(prog)
 
     einsum_gpu = cp.RawKernel(prog, "einsum")
     size = math.prod(shape)

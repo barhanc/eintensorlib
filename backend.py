@@ -19,6 +19,7 @@ relu = lambda x: cp.maximum(0, x)
 outer = cp.outer
 sum = cp.sum
 abs = cp.abs
+trace = cp.trace
 
 
 def delta(shape):
