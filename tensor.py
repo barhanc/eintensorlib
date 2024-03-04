@@ -4,7 +4,6 @@ from abc import abstractmethod, ABC
 from typing import Final, Callable
 from string import ascii_letters
 from copy import copy
-from itertools import combinations
 
 
 class Expression(ABC):
@@ -147,20 +146,20 @@ class Einsum(Expression):
 
 
 class Mul(Expression):
-    def __init__(self, A: Expression, scalar: float):
+    def __init__(self, A: Expression, a: float):
         self.A = A
-        self.scalar = scalar
+        self.a = a
 
         self.data: be.Data_t = None
         self.shape = A.shape
 
     def eval(self):
-        self.data = self.scalar * self.A.eval() if self.data is None else self.data
+        self.data = self.a * self.A.eval() if self.data is None else self.data
         return self.data
 
     def grad(self, seed: be.Data_t = None):
         seed = seed if seed is not None else be.delta(self.shape)
-        self.A.grad(self.scalar * seed)
+        self.A.grad(self.a * seed)
 
     def null(self):
         self.data = None

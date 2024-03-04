@@ -81,7 +81,7 @@ def get_shape(indices: str, *Ts: Data_t | LazyData_t) -> tuple[int]:
     return tuple(bounds[i] for i in rhs_expr)
 
 
-def einsum(indices: str, *Ts: Data_t | LazyData_t):
+def einsum(indices: str, *Ts: Data_t | LazyData_t) -> Data_t:
     bounds = get_bounds(indices, *Ts)
     rhs_inds = indices.split("->")[1]
     lhs_inds = indices.split("->")[0].split(",")
