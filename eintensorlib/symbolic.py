@@ -1,32 +1,71 @@
-from string import ascii_letters
+import re
+from string import ascii_lowercase
+
+
+lT = r"([TD]\((|[a-z]?+(?:,[a-z])*)\))"
+rT = r"([TD]\((|(?:(?:\d+|[a-z])(?:[\+\-\*](?:\d+|[a-z]))*)?+(?:,(?:(?:\d+|[a-z])(?:[\+\-\*](?:\d+|[a-z]))*)?)*)\))"
+aT = f"{lT}<-{rT}(\*{rT})*"
 
 
 def derive(expr: str) -> str:
-    pass
+    expr = expr.replace(" ", "")
+    lhs, rhs = expr.split("<-")
+
+    used = set(expr) - {"T", "D", ",", "(", ")", "<", "-", "+", "*"}
+    free = get_indices_T(lhs)
+    dumm = used - set(free)
+
+    Texprs, derivatives = rhs.split(")*T"), []
+    for i, T in enumerate(Texprs):
+        if T[0] != "T":
+            continue
+
+        a = get_indices_T(T)
+        b = make_indices(len(a), used)
+
+        derivative = (
+            "*".join(Texprs[:i])
+            + ("*" if Texprs[:i] else "")
+            + delta_prod(b, a)
+            + ("*" if Texprs[i + 1 :] else "")
+            + "*".join(Texprs[i + 1 :])
+        )
+        derivative = (
+            f"T({','.join(b)}{',' if len(free[0]) else ''}{','.join(free)}) <- " + derivative
+        )
+
+        for ia, ib in zip(a, b):
+            derivative = derivative.replace(ia, ib) if ia in dumm else derivative
+
+        derivatives.append(derivative)
+
+    return derivatives
 
 
-def makeIndices(n: int, usedIndices: set[str] = set()) -> list[str]:
-    return list(set(ascii_letters) - usedIndices)[:n]
+def make_indices(n: int, used_indices: set[str] = set()) -> list[str]:
+    return list(set(ascii_lowercase) - used_indices)[:n]
 
 
-def deltaProd(indices1: list[str], indices2: list[str]) -> str:
-    return "*".join(f"δ({i1},{i2})" for i1, i2 in zip(indices1, indices2))
+def delta_prod(indices1: list[str], indices2: list[str]) -> str:
+    assert len(indices1) == len(indices2)
+    return "*".join(f"D({i1},{i2})" for i1, i2 in zip(indices1, indices2))
 
 
-def getBounds(expr: str, *Ts) -> dict[str, int]:
-    assert "+" not in expr
-    expr = list(filter(lambda s: s[0] == "T", expr.replace(" ", "").split("*")))
-    bounds = {}
-    for i, T in enumerate(Ts):
-        for j, idx in enumerate(expr[i][2:-1].split(",")):
-            if idx in bounds:
-                assert bounds[idx] == T.shape[j]
-            else:
-                bounds[idx] = T.shape[j]
-    return bounds
+def get_indices_T(expr: str):
+    expr = expr.replace(" ", "").replace("(", "").replace(")", "")
+    expr = expr.replace("T", "").replace("D", "")
+    return expr.split(",")
 
+
+import re
 
 if __name__ == "__main__":
-    import numpy as np
+    # print(derive("T(i,j) <- T(i,k) * T(j,k)"))
+    # print(derive("T( ) <- T(i,i,i,i)"))
+    # print(derive("T(a,b,c,e) <- T(3*a+i, 3*b+j, k, e)*T(i,j,k,c)"))
 
-    print(getBounds("T(i, j, k) * T(i, j, q) * δ(p, q)  ", np.ones((3, 3, 3)), np.ones((3, 3, 3))))
+    expr = "T(a,b,c,e)<-T(3*a+i,3*b+j,k,e)*T(i,j,k,c)"
+    assert re.match(aT, expr)
+    lhs, rhs = expr.split("<-")
+    print(re.findall(lT, lhs))
+    print(re.findall(rT, rhs))
