@@ -1,6 +1,7 @@
 import re
 import math
 import string
+
 from typing import Final
 
 
@@ -46,7 +47,7 @@ def get_output_shape(expr: str, bounds: dict[str, int]) -> tuple[int]:
     return tuple(bounds[i] for i in lhs[1].split(","))
 
 
-def derive(expr: str) -> tuple[str, dict[str, int]]:
+def derive(expr: str) -> list[tuple[str, str]]:
     expr = expr.replace(" ", "")
     lhs, rhs = expr.split("<-")
     lhs, rhs = re.findall(LHS_re, lhs)[0], re.findall(RHS_re, rhs)
@@ -73,9 +74,13 @@ def derive(expr: str) -> tuple[str, dict[str, int]]:
         for x, y in zip(args_x, args_y):
             derivative = derivative.replace(x, y) if x in dumm_args else derivative
 
-        derivatives.append((",".join(args_y), derivative))
+        derivatives.append((",".join(args_y), ",".join(free_args), derivative))
 
     return derivatives
+
+
+# =============================================================================
+# =============================================================================
 
 
 def prog_cuda(expr: str, bounds: dict[str, int], shapes: list[tuple[int]]) -> str:
@@ -116,7 +121,7 @@ def prog_cuda(expr: str, bounds: dict[str, int], shapes: list[tuple[int]]) -> st
     # =====================================================
 
     prog = f"""extern "C"
-__global__ void ein({f_signature}, double *R){{
+__global__ void ein({f_signature}{',' if len(f_signature) >0 else ''} double *R){{
 long item = (blockIdx.x * blockDim.x) + threadIdx.x;
 if (item < {size}){{
 {free_args_init};
@@ -136,14 +141,13 @@ if __name__ == "__main__":
     bounds = dict(zip("abceijk", (3, 3, 3, 4, 4, 4, 4)))
     shapes = [(2, 2, 2, 2), (2, 2, 2, 2)]
 
-    # expr = "T(j) <- T(i,i)"
-    # bounds = dict(zip("ji", (1, 4)))
-    # shapes = [(4, 4)]
+    expr = "T(j) <- T(i,i)"
+    bounds = dict(zip("ji", (1, 4)))
+    shapes = [(4, 4)]
 
     validate_expr(expr, bounds, shapes)
-
     print(expr, "\n", "=" * 60)
     for d in derive(expr):
         print(d)
 
-    print(prog_cuda(expr, bounds, shapes))
+    # print(prog_cuda(expr, bounds, shapes))

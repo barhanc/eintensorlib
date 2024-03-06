@@ -27,6 +27,13 @@ def ein_eval(expr: str, *Ts: Data_t, bounds: dict[str, int], threads_per_block=1
     return out_gpu.reshape(out_shape, order="F")
 
 
+def delta(shape: tuple[int]) -> Data_t:
+    args_a = symbolic.make_indices(len(shape))
+    args_b = symbolic.make_indices(len(shape), set(args_a))
+    e = f"T({','.join(args_a)},{','.join(args_b)})<-{symbolic.delta_prod(args_a, args_b)}"
+    return ein_eval(e, bounds=dict(zip(args_a + args_b, shape + shape)))
+
+
 # =========================================================
 # Backend agnostic classes/functions
 # =========================================================
@@ -55,18 +62,25 @@ class Expression(ABC):
     def null(self) -> None:
         pass
 
-    # def __add__(self, other):
-    #     if not isinstance(other, Expression):
-    #         raise TypeError("Unsupported operand type(s) for +")
-    #     return Add(self, other)
+    def __add__(self, other):
+        if not isinstance(other, Expression):
+            raise TypeError("Unsupported operand type(s) for +")
+        return Add(self, other)
 
-    # def __mul__(self, other):
-    #     if not isinstance(other, float):
-    #         raise TypeError("Unsupported operand type(s) for *")
-    #     return Mul(self, other)
+    def __mul__(self, other):
+        if not isinstance(other, (float, int)):
+            raise TypeError("Unsupported operand type(s) for *")
+        return Mul(self, other)
 
-    # def __rmul__(self, other):
-    #     return Mul(self, other)
+    def __rmul__(self, other):
+        if not isinstance(other, (float, int)):
+            raise TypeError("Unsupported operand type(s) for *")
+        return Mul(self, other)
+
+    def __sub__(self, other):
+        if not isinstance(other, Expression):
+            raise TypeError("Unsupported operand type(s) for -")
+        return self + -1 * other
 
     # def __pow__(self, other):
     #     if not isinstance(other, float):
@@ -83,30 +97,60 @@ class Tensor(Expression):
     def eval(self) -> Data_t:
         return self.data
 
-    def grad(self, seed: Data_t) -> None:
-        pass
+    def grad(self, seed: Data_t = None) -> None:
+        seed = delta(self.shape) if seed is None else seed
+        self.partial = seed if self.partial is None else self.partial + seed
 
     def null(self) -> None:
-        pass
+        self.partial = None
 
 
 # ---------------------------------------------------------
 # Tensor addition
-# ---------------------------
+# ---------------------------------------------------------
 class Add(Expression):
     def __init__(self, T1: Expression, T2: Expression):
         assert T1.shape == T2.shape
         self.T1, self.T2 = T1, T2
+        self.data: Data_t = None
         self.shape = T1.shape
 
     def eval(self) -> Data_t:
-        return self.T1.eval() + self.T2.eval()
+        self.data = self.T1.eval() + self.T2.eval() if self.data is None else self.data
+        return self.data
 
-    def grad(self, seed: Data_t) -> None:
-        pass
+    def grad(self, seed: Data_t = None) -> None:
+        seed = delta(self.shape) if seed is None else seed
+        self.T1.grad(seed)
+        self.T2.grad(seed)
 
     def null(self) -> None:
-        pass
+        self.data = None
+        self.T1.null()
+        self.T2.null()
+
+
+# ---------------------------------------------------------
+# Multiplication by a scalar
+# ---------------------------------------------------------
+class Mul(Expression):
+    def __init__(self, T: Expression, a: float | int):
+        self.T = T
+        self.a = a
+        self.data: Data_t = None
+        self.shape = T.shape
+
+    def eval(self):
+        self.data = self.a * self.T.eval() if self.data is None else self.data
+        return self.data
+
+    def grad(self, seed: Data_t = None):
+        seed = delta(self.shape) if seed is None else seed
+        self.T.grad(self.a * seed)
+
+    def null(self):
+        self.data = None
+        self.T.null()
 
 
 # ---------------------------------------------------------
@@ -117,17 +161,34 @@ class Ein(Expression):
         self.Ts: tuple[Expression] = Ts
         self.expr: str = expr
         self.data: Data_t = None
-        self.shape: tuple[int] = None
+        self.shape: tuple[int] = symbolic.get_output_shape(expr, bounds)
         self.bounds: dict[str] = bounds
 
     def eval(self) -> Data_t:
-        pass
+        return ein_eval(self.expr, *[T.eval() for T in self.Ts], self.bounds)
 
-    def grad(self, seed: Data_t) -> None:
-        pass
+    def grad(self, seed: Data_t = None) -> None:
+        seed = delta(self.shape) if seed is None else seed
+        Tid = 0
+        for T, (grad_args, free_args, grad_expr) in zip(self.Ts, symbolic.derive(self.expr)):
+            _, rhs = grad_expr.split("<-")
+            new_free_args = symbolic.make_indices(
+                len(seed.shape) - len(free_args),
+                set(grad_args) | set(free_args) | set(self.bounds.keys()),
+            )
+            expr = f"T({','.join(grad_args)},{','.join(new_free_args)}) <- T({','.join(free_args)},{','.join(new_free_args)}){'*'+rhs if len(rhs)>0 else ''}"
+            bounds = {
+                **self.bounds,
+                **dict(zip(grad_args, T.shape)),
+                **dict(zip(new_free_args, seed.shape[-len(new_free_args) :])),
+            }
+            T.grad(ein_eval(expr, seed, *(self.Ts[:Tid] + self.Ts[Tid + 1 :]), bounds))
+            Tid += 1
 
     def null(self) -> None:
-        pass
+        self.data = None
+        for T in self.Ts:
+            T.null()
 
 
 # ---------------------------------------------------------
@@ -139,17 +200,5 @@ class Elf(Expression):
     pass
 
 
-import torch
-import numpy as np
-from time import perf_counter
-from cupyx.profiler import benchmark
-
 if __name__ == "__main__":
-    A = cp.random.random((10000, 10000))
-    B = cp.random.random((10000, 10000))
-    C = ein_eval("T(i,j) <- T(i,k) * T(k,j)", A, B, bounds={"i": 10000, "j": 10000, "k": 10000})
-
-    # device = torch.device("cuda")
-    # tA = torch.randn((10000, 10000)).to(device)
-    # tB = torch.randn((10000, 10000)).to(device)
-    # tC = tA @ tB
+    print(delta((5,)))
