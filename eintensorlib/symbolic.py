@@ -9,7 +9,7 @@ ARG_re: Final = f"({ARH_re}(?:,{ARH_re})*)"
 RHS_re: Final = f"(?:(T|D)\({ARG_re}\))"
 LHS_re: Final = r"(?:(T)\(([a-z](?:,[a-z])*)\))"
 XPR_re: Final = f"^{LHS_re}<-{RHS_re}(\*{RHS_re})*$"
-SPECIAL: Final = {"T", "D"} + {",", "(", ")", "<-", "*"} + {"+", "*", "-"} + set("0123456789")
+SPECIAL: Final = set("TD,()<-*+*-0123456789")
 
 
 def validate_expr(expr: str, bounds: dict[str, int]) -> None:
@@ -17,7 +17,7 @@ def validate_expr(expr: str, bounds: dict[str, int]) -> None:
     used = set(expr) - SPECIAL
     assert re.match(XPR_re, expr), "Expression does not match the required regex"
     assert all([u in bounds for u in used]), "One of the indices is not present in `bounds` dict"
-    assert all([b > 0 for b in bounds.items()]), "One of the bounds is 0 (can only be >= 1)"
+    assert all([b > 0 for b in bounds.items()]), "Bounds can only be >= 1"
 
     # Make sure that every Delta expression has exactly 2 args
     lhs, rhs = expr.split("<-")
@@ -42,9 +42,7 @@ def get_output_shape(expr: str, bounds: dict[str, int]) -> tuple[int]:
     return tuple(bounds[i] for i in lhs[1].split(","))
 
 
-def derive(
-    expr: str, bounds: dict[str, int], dv_bounds: dict[str, int]
-) -> tuple[str, dict[str, int]]:
+def derive(expr: str) -> tuple[str, dict[str, int]]:
     expr = expr.replace(" ", "")
 
     lhs, rhs = expr.split("<-")
@@ -54,7 +52,7 @@ def derive(
     free_args = lhs[1].split(",")
     dumm_args = used_args - set(free_args)
 
-    derivatives, new_bounds = [], []
+    derivatives = []
     for n, (ttype, args_x) in enumerate(rhs):
         if ttype != "T":
             continue
@@ -72,10 +70,9 @@ def derive(
         for x, y in zip(args_x, args_y):
             derivative = derivative.replace(x, y) if x in dumm_args else derivative
 
-        derivatives.append(derivative)
-        new_bounds.append({**{y: dv_bounds[i] for i, y in enumerate(args_y)}, **bounds})
+        derivatives.append(("".join(args_y), derivative))
 
-    return list(zip(derivatives, new_bounds))
+    return derivatives
 
 
 def prog_cuda(expr: str, bounds: dict[str, int], shapes: list[tuple[int]]):
@@ -83,14 +80,17 @@ def prog_cuda(expr: str, bounds: dict[str, int], shapes: list[tuple[int]]):
 
     lhs, rhs = expr.split("<-")
     lhs, rhs = re.findall(LHS_re, lhs)[0], re.findall(RHS_re, rhs)
+    rhs_Ts = [args for ttype, args in rhs if ttype == "T"]
+    rhs_Ds = [args for ttype, args in rhs if ttype == "D"]
 
     used_args = set(expr) - SPECIAL
     free_args = lhs[1].split(",")
     dumm_args = used_args - set(free_args)
 
     out_shape = get_output_shape(expr, bounds)
+    size = math.prod(out_shape)
 
-    func_signature = ", ".join(f"double *T{id}" for id in range(len(rhs)))
+    f_signature = ", ".join(f"double *T{Tid}" for Tid in range(len(rhs_Ts)))
     free_args_vals = [
         f"(item % {math.prod(out_shape[:i])}) / {math.prod(out_shape[:i-1])}"
         for i in range(1, len(out_shape) + 1)
@@ -99,14 +99,43 @@ def prog_cuda(expr: str, bounds: dict[str, int], shapes: list[tuple[int]]):
     free_args_init += ", ".join(f"{arg} = {value}" for arg, value in zip(free_args, free_args_vals))
     for_loops = "\n".join(f"for(long {arg}=0; {arg}<{bounds[arg]}; {arg}++){{" for arg in dumm_args)
     for_end = "}" * len(dumm_args)
+    linearize = lambda Tid: " + ".join(
+        f"({arg})*{math.prod([shapes[Tid][ax_id] for ax_id in range(n)])}"
+        for n, arg in enumerate(rhs_Ts[Tid].split(","))
+    )
+    ein_expr = " * ".join(
+        [f"T{Tid}[{linearize(Tid)}]" for Tid in range(len(rhs_Ts))]
+        + [f"(({args.split(',')[0]}=={args.split(',')[1]}) ? 1 : 0)" for args in rhs_Ds]
+    )
 
-    linearize_arg = lambda Tid: "+".join()
+    prog = f"""extern "C"
+__global__ void ein({f_signature}, double *R){{
+long item = (blockIdx.x * blockDim.x) + threadIdx.x;
+if (item < {size}){{
+{free_args_init};
+double acc = 0;
+{for_loops}
+acc += {ein_expr};
+{for_end}
+R[item] = acc;
+}}
+}}
+"""
+    return prog
 
 
 if __name__ == "__main__":
     expr = "T(a, b, c, e) <- T( 30*a + i, 3*b + j, k, 0 ) * T(i, j, k, c) * D(i,j)"
-    # expr = "T(j) <- T(i,i,i,i)"
+    bounds = dict(zip("abceijk", (3, 3, 3, 4, 4, 4, 4)))
+    shapes = [(2, 2, 2, 2), (2, 2, 2, 2)]
 
-    print(expr, "\n", "=" * 60)
-    for d, _ in derive(expr, dict(zip("abceijk", (3, 3, 3, 4, 4, 4, 4)))):
+    expr = "T(j) <- T(i,i)"
+    bounds = dict(zip("ji", (1, 4)))
+    shapes = [(4, 4)]
+
+    # print(expr, "\n", "=" * 60)
+    for d in derive(expr):
         print(d)
+
+    # print(expr)
+    # print(prog_cuda(expr, bounds, shapes))
