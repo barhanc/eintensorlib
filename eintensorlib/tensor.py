@@ -1,9 +1,8 @@
 # =========================================================
-# Backend specific
+# Backend specific functions
 # =========================================================
 import cupy as cp
-import numpy as np
-
+import symbolic
 
 Data_t = cp.ndarray
 
@@ -12,20 +11,20 @@ def array(data) -> Data_t:
     return cp.array(data)
 
 
-def einEval(expr: str, *Ts: Data_t, bounds: dict[str, int]):
+def ein_eval(expr: str, *Ts: Data_t, bounds: dict[str, int]):
     pass
 
 
 # =========================================================
-# Backend agnostic
+# Backend agnostic classes/functions
 # =========================================================
-from typing import Callable
-from abc import ABC, abstractmethod
-
 # Maybe not. Lets just stick with Add + Ein and *explicit* declaration of bounds of indices(sic!).
 # This way the whole implementation with CUDA backend can be one ~250loc file and we can eaily
 # support arthimetic expressions for indices e.g. "T(a,b,c) <- T(5*a + 2*i, 5*b + 2*j, k) *
-# T(i,j,k,c)"
+# T(i,j,k,c)" and in this way also reshape operations
+
+from typing import Callable
+from abc import ABC, abstractmethod
 
 
 class Expression(ABC):
@@ -79,7 +78,7 @@ class Tensor(Expression):
         pass
 
 
-# Addition
+# Tensor addition
 # ---------------------------
 class Add(Expression):
     def __init__(self, T1: Expression, T2: Expression):
