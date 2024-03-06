@@ -3,6 +3,7 @@
 # =========================================================
 import cupy as cp
 import symbolic
+import math
 
 Data_t = cp.ndarray
 
@@ -11,8 +12,19 @@ def array(data) -> Data_t:
     return cp.array(data)
 
 
-def ein_eval(expr: str, *Ts: Data_t, bounds: dict[str, int]):
-    pass
+def ein_eval(expr: str, *Ts: Data_t, bounds: dict[str, int], threads_per_block=128) -> Data_t:
+    program = symbolic.prog_cuda(expr, bounds, [T.shape for T in Ts])
+    # print(program)
+    program_gpu = cp.RawKernel(program, "ein")
+    out_shape = symbolic.get_output_shape(expr, bounds)
+    size = math.prod(out_shape)
+    out_gpu = cp.zeros(size, dtype=float)
+
+    grid_size = (int(math.ceil(size / threads_per_block)), 1, 1)
+    block_size = (threads_per_block, 1, 1)
+
+    program_gpu(grid_size, block_size, (*[T.flatten("F") for T in Ts], out_gpu))
+    return out_gpu.reshape(out_shape, order="F")
 
 
 # =========================================================
@@ -78,6 +90,7 @@ class Tensor(Expression):
         pass
 
 
+# ---------------------------------------------------------
 # Tensor addition
 # ---------------------------
 class Add(Expression):
@@ -96,8 +109,9 @@ class Add(Expression):
         pass
 
 
+# ---------------------------------------------------------
 # Einstein's summation notation
-# ---------------------------
+# ---------------------------------------------------------
 class Ein(Expression):
     def __init__(self, expr: str, *Ts: Expression, bounds: dict[str, int]) -> None:
         self.Ts: tuple[Expression] = Ts
@@ -116,9 +130,26 @@ class Ein(Expression):
         pass
 
 
-# Elementwise function
-# ---------------------------
+# ---------------------------------------------------------
+# Element-wise function
+# ---------------------------------------------------------
 class Elf(Expression):
     f: Callable
     df: Callable
     pass
+
+
+import torch
+import numpy as np
+from time import perf_counter
+from cupyx.profiler import benchmark
+
+if __name__ == "__main__":
+    A = cp.random.random((10000, 10000))
+    B = cp.random.random((10000, 10000))
+    C = ein_eval("T(i,j) <- T(i,k) * T(k,j)", A, B, bounds={"i": 10000, "j": 10000, "k": 10000})
+
+    # device = torch.device("cuda")
+    # tA = torch.randn((10000, 10000)).to(device)
+    # tB = torch.randn((10000, 10000)).to(device)
+    # tC = tA @ tB

@@ -12,17 +12,21 @@ XPR_re: Final = f"^{LHS_re}<-{RHS_re}(\*{RHS_re})*$"
 SPECIAL: Final = set("TD,()<-*+*-0123456789")
 
 
-def validate_expr(expr: str, bounds: dict[str, int]) -> None:
+def validate_expr(expr: str, bounds: dict[str, int], shapes: tuple[int]) -> None:
     expr = expr.replace(" ", "")
     used = set(expr) - SPECIAL
     assert re.match(XPR_re, expr), "Expression does not match the required regex"
     assert all([u in bounds for u in used]), "One of the indices is not present in `bounds` dict"
-    assert all([b > 0 for b in bounds.items()]), "Bounds can only be >= 1"
+    assert all([b > 0 for b in bounds.values()]), "Bounds can only be >= 1"
 
     # Make sure that every Delta expression has exactly 2 args
     lhs, rhs = expr.split("<-")
     lhs, rhs = re.findall(LHS_re, lhs)[0], re.findall(RHS_re, rhs)
     assert all([ttype != "D" or len(args.split(",")) == 2 for ttype, args in rhs])
+
+    # Assert correct number of arguments for each tensor
+    rhs_Ts = [args for ttype, args in rhs if ttype == "T"]
+    assert all([len(args.split(",")) == len(shapes[Tid]) for Tid, args in enumerate(rhs_Ts)])
 
 
 def make_indices(n: int, used_indices: set[str] = set()) -> list[str]:
@@ -44,7 +48,6 @@ def get_output_shape(expr: str, bounds: dict[str, int]) -> tuple[int]:
 
 def derive(expr: str) -> tuple[str, dict[str, int]]:
     expr = expr.replace(" ", "")
-
     lhs, rhs = expr.split("<-")
     lhs, rhs = re.findall(LHS_re, lhs)[0], re.findall(RHS_re, rhs)
 
@@ -70,14 +73,14 @@ def derive(expr: str) -> tuple[str, dict[str, int]]:
         for x, y in zip(args_x, args_y):
             derivative = derivative.replace(x, y) if x in dumm_args else derivative
 
-        derivatives.append(("".join(args_y), derivative))
+        derivatives.append((",".join(args_y), derivative))
 
     return derivatives
 
 
-def prog_cuda(expr: str, bounds: dict[str, int], shapes: list[tuple[int]]):
+def prog_cuda(expr: str, bounds: dict[str, int], shapes: list[tuple[int]]) -> str:
+    validate_expr(expr, bounds, shapes)
     expr = expr.replace(" ", "")
-
     lhs, rhs = expr.split("<-")
     lhs, rhs = re.findall(LHS_re, lhs)[0], re.findall(RHS_re, rhs)
     rhs_Ts = [args for ttype, args in rhs if ttype == "T"]
@@ -90,6 +93,9 @@ def prog_cuda(expr: str, bounds: dict[str, int], shapes: list[tuple[int]]):
     out_shape = get_output_shape(expr, bounds)
     size = math.prod(out_shape)
 
+    # -----------------------------------------------------
+    # C kernel fragments (this code is pretty dense i know)
+    # -----------------------------------------------------
     f_signature = ", ".join(f"double *T{Tid}" for Tid in range(len(rhs_Ts)))
     free_args_vals = [
         f"(item % {math.prod(out_shape[:i])}) / {math.prod(out_shape[:i-1])}"
@@ -107,6 +113,7 @@ def prog_cuda(expr: str, bounds: dict[str, int], shapes: list[tuple[int]]):
         [f"T{Tid}[{linearize(Tid)}]" for Tid in range(len(rhs_Ts))]
         + [f"(({args.split(',')[0]}=={args.split(',')[1]}) ? 1 : 0)" for args in rhs_Ds]
     )
+    # =====================================================
 
     prog = f"""extern "C"
 __global__ void ein({f_signature}, double *R){{
@@ -129,13 +136,14 @@ if __name__ == "__main__":
     bounds = dict(zip("abceijk", (3, 3, 3, 4, 4, 4, 4)))
     shapes = [(2, 2, 2, 2), (2, 2, 2, 2)]
 
-    expr = "T(j) <- T(i,i)"
-    bounds = dict(zip("ji", (1, 4)))
-    shapes = [(4, 4)]
+    # expr = "T(j) <- T(i,i)"
+    # bounds = dict(zip("ji", (1, 4)))
+    # shapes = [(4, 4)]
 
-    # print(expr, "\n", "=" * 60)
+    validate_expr(expr, bounds, shapes)
+
+    print(expr, "\n", "=" * 60)
     for d in derive(expr):
         print(d)
 
-    # print(expr)
-    # print(prog_cuda(expr, bounds, shapes))
+    print(prog_cuda(expr, bounds, shapes))
