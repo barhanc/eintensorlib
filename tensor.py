@@ -167,6 +167,7 @@ class Ein(Expression):
         )
         return self.data
 
+    # TODO: Make it prettier
     def grad(self, seed: Data_t = None) -> None:
         seed = delta(self.shape) if seed is None else seed
         Tid = 0
@@ -232,6 +233,10 @@ class Elf(Expression):
         self.T.null()
 
 
+# =============================================================================
+# =============================================================================
+
+
 class Pow(Elf):
     def __init__(self, T: Expression, e: float | int):
         self.f = lambda x: x**e
@@ -277,4 +282,8 @@ if __name__ == "__main__":
     Y = 0.5 * X**2
     print(Y.eval())
     Y.grad()
+    print(X.partial)
+    Y.null()
+    print(X.partial, Y.data)
+    print(Y.eval())
     print(X.partial)
