@@ -1,6 +1,7 @@
 # =========================================================
 # Backend specific functions
 # =========================================================
+import numpy as np
 import cupy as cp
 import symbolic
 import math
@@ -130,8 +131,7 @@ class Add(Expression):
 # ---------------------------------------------------------
 class Mul(Expression):
     def __init__(self, T: Expression, a: float | int):
-        self.T = T
-        self.a = a
+        self.T, self.a = T, a
         self.data: Data_t = None
         self.shape = T.shape
 
@@ -167,7 +167,7 @@ class Ein(Expression):
         )
         return self.data
 
-    # TODO: Make it prettier
+    # TODO: Make it prettier + delta reductions
     def grad(self, seed: Data_t = None) -> None:
         seed = delta(self.shape) if seed is None else seed
         Tid = 0
@@ -217,13 +217,13 @@ class Elf(Expression):
 
     def grad(self, seed: Data_t = None) -> None:
         seed = delta(self.shape) if seed is None else seed
-        args_a = ",".join(symbolic.make_indices(len(seed.shape) - len(self.shape)))
-        args_b = ",".join(symbolic.make_indices(len(self.shape), set(args_a)))
+        i = ",".join(symbolic.make_indices(len(seed.shape) - len(self.shape)))
+        j = ",".join(symbolic.make_indices(len(self.shape), set(i)))
 
-        expr = f"T({args_b},{args_a}) <- T({args_b},{args_a}) * T({args_b})"
+        expr = f"T({j},{i}) <- T({j},{i}) * T({j})"
         bounds = {
-            **dict(zip(args_b.split(","), self.shape)),
-            **dict(zip(args_a.split(","), seed.shape[-len(args_a.split(",")) :])),
+            **dict(zip(j.split(","), self.shape)),
+            **dict(zip(i.split(","), seed.shape[-len(i.split(",")) :])),
         }
         new_seed = ein_eval(expr, seed, self.df(self.T.eval()), bounds=bounds)
         self.T.grad(new_seed)
@@ -265,25 +265,23 @@ class ReLU(Elf):
         super().__init__(T)
 
 
-import numpy as np
-
 if __name__ == "__main__":
-    # A = Tensor(np.ones((4000, 4000)))
-    # X = Tensor(np.ones(4000))
-    # C = Tensor([2])
-    # Y = Ein("T(i) <- T(i,j) * T(j) * T(0)", A, X, C, bounds={"i": 4000, "j": 4000})
-    # l = Ein("T(i) <- T(j)", Y, bounds={"i": 1, "j": 4000})
-    # print(l.eval())
-    # l.grad()
-    # # print(X.partial)
-    # print(A.partial[:, :, 0])
-    # print(C.partial)
-    X = Tensor([1])
-    Y = 0.5 * X**2
-    print(Y.eval())
-    Y.grad()
-    print(X.partial)
-    Y.null()
-    print(X.partial, Y.data)
-    print(Y.eval())
-    print(X.partial)
+    A = Tensor(np.ones((4000, 4000)))
+    X = Tensor(np.ones(4000))
+    C = Tensor([2])
+    Y = Ein("T(i) <- T(i,j) * T(j) * T(0)", A, X, C, bounds={"i": 4000, "j": 4000})
+    l = Ein("T(i) <- T(j)", Y**2, bounds={"i": 1, "j": 4000})
+    print(l.eval())
+    l.grad()
+    # print(X.partial)
+    print(A.partial[:, :, 0])
+    print(C.partial)
+    # X = Tensor([1])
+    # Y = 0.5 * X**2
+    # print(Y.eval())
+    # Y.grad()
+    # print(X.partial)
+    # Y.null()
+    # print(X.partial, Y.data)
+    # print(Y.eval())
+    # print(X.partial)

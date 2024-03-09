@@ -99,7 +99,7 @@ def prog_cuda(expr: str, bounds: dict[str, int], shapes: list[tuple[int]]) -> st
     size = math.prod(out_shape)
 
     # -----------------------------------------------------
-    # C kernel fragments (this code is pretty dense i know)
+    # C kernel fragments (this code is pretty dense, i know)
     # -----------------------------------------------------
     f_signature = ", ".join(f"double *T{Tid}" for Tid in range(len(rhs_Ts)))
     free_args_vals = [
