@@ -37,7 +37,7 @@ def delta(shape: tuple[int]) -> Data_t:
 
 
 # =========================================================
-# Backend agnostic classes/functions
+# Backend agnostic classes abstractions
 # =========================================================
 from typing import Callable
 from abc import ABC, abstractmethod
