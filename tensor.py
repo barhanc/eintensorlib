@@ -15,7 +15,7 @@ def array(data) -> Data_t:
 
 def ein_eval(expr: str, *Ts: Data_t, bounds: dict[str, int], threads_per_block=128) -> Data_t:
     program = symbolic.prog_cuda(expr, bounds, [T.shape for T in Ts])
-    # print(program)
+    print(program)
     program_gpu = cp.RawKernel(program, "ein")
     out_shape = symbolic.get_output_shape(expr, bounds)
     size = math.prod(out_shape)
