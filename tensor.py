@@ -1,9 +1,10 @@
+import symbolic
+
 # =========================================================
 # Backend specific functions
 # =========================================================
 import numpy as np
 import cupy as cp
-import symbolic
 import math
 
 Data_t = cp.ndarray
@@ -164,7 +165,7 @@ class Ein(Expression):
             self.data = ein_eval(self.expr, *[T.eval() for T in self.Ts], bounds=self.bounds)
         return self.data
 
-    # TODO: Make it prettier + delta reductions
+    # TODO: Delta reductions
     def grad(self, seed: Data_t = None) -> None:
         seed = delta(self.shape) if seed is None else seed
 

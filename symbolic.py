@@ -98,27 +98,27 @@ def prog_cuda(expr: str, bounds: dict[str, int], shapes: list[tuple[int]]) -> st
     out_shape = get_output_shape(expr, bounds)
     size = math.prod(out_shape)
 
-    # -----------------------------------------------------
     # C kernel fragments (this code is pretty dense, i know)
-    # -----------------------------------------------------
     f_signature = ", ".join(f"double *T{Tid}" for Tid in range(len(rhs_Ts)))
+
     free_args_vals = [
-        f"(item % {math.prod(out_shape[:i])}) / {math.prod(out_shape[:i-1])}"
-        for i in range(1, len(out_shape) + 1)
+        f"(item % {math.prod(out_shape[:i])}) / {math.prod(out_shape[:i-1])}" for i in range(1, len(out_shape) + 1)
     ]
     free_args_init = "long "
     free_args_init += ", ".join(f"{arg} = {value}" for arg, value in zip(free_args, free_args_vals))
+
     for_loops = "\n".join(f"for(long {arg}=0; {arg}<{bounds[arg]}; {arg}++){{" for arg in dumm_args)
     for_end = "}" * len(dumm_args)
+
     linearize = lambda Tid: " + ".join(
         f"({arg})*{math.prod([shapes[Tid][ax_id] for ax_id in range(n)])}"
         for n, arg in enumerate(rhs_Ts[Tid].split(","))
     )
+
     ein_expr = " * ".join(
         [f"T{Tid}[{linearize(Tid)}]" for Tid in range(len(rhs_Ts))]
         + [f"(({args.split(',')[0]}=={args.split(',')[1]}) ? 1 : 0)" for args in rhs_Ds]
     )
-    # =====================================================
 
     prog = f"""extern "C"
 __global__ void ein({f_signature}{',' if len(f_signature) >0 else ''} double *R){{
