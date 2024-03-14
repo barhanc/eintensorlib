@@ -161,37 +161,35 @@ class Ein(Expression):
 
     def eval(self) -> Data_t:
         self.data = (
-            ein_eval(self.expr, *[T.eval() for T in self.Ts], bounds=self.bounds)
-            if self.data is None
-            else self.data
+            ein_eval(self.expr, *[T.eval() for T in self.Ts], bounds=self.bounds) if self.data is None else self.data
         )
         return self.data
 
     # TODO: Make it prettier + delta reductions
     def grad(self, seed: Data_t = None) -> None:
         seed = delta(self.shape) if seed is None else seed
-        Tid = 0
-        for T, (grad_args, free_args, grad_expr) in zip(self.Ts, symbolic.derive(self.expr)):
+
+        for id, (T, (grad_args, free_args, grad_expr)) in enumerate(zip(self.Ts, symbolic.derive(self.expr))):
             _, rhs = grad_expr.split("<-")
-            new_free_args = symbolic.make_indices(
-                len(seed.shape) - len(free_args),
-                set(grad_args) | set(free_args) | set(self.bounds.keys()),
-            )
-            expr = f"T({','.join(grad_args.split(','))},{','.join(new_free_args)}) <- T({','.join(free_args)},{','.join(new_free_args)}){'*'+rhs if len(rhs)>0 else ''}"
+            used_args = set(grad_args) | set(free_args) | set(self.bounds.keys())
+            args = symbolic.make_indices(len(seed.shape) - len(free_args), used_args)
+
+            expr = f"T({','.join(grad_args.split(','))},{','.join(args)})"
+            expr += f"<- T({','.join(free_args)},{','.join(args)}){'*'+rhs if len(rhs) > 0 else ''}"
             bounds = {
                 **self.bounds,
                 **dict(zip(grad_args.split(","), T.shape)),
-                **dict(zip(new_free_args, seed.shape[-len(new_free_args) :])),
+                **dict(zip(args, seed.shape[-len(args) :])),
             }
             print(expr)
+
             new_seed = ein_eval(
                 expr,
                 seed,
-                *([T.eval() for T in self.Ts[:Tid]] + [T.eval() for T in self.Ts[Tid + 1 :]]),
+                *([T.eval() for T in self.Ts[:id]] + [T.eval() for T in self.Ts[id + 1 :]]),
                 bounds=bounds,
             )
             T.grad(new_seed)
-            Tid += 1
 
     def null(self) -> None:
         self.data = None
