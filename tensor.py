@@ -160,9 +160,8 @@ class Ein(Expression):
         self.bounds: dict[str] = bounds
 
     def eval(self) -> Data_t:
-        self.data = (
-            ein_eval(self.expr, *[T.eval() for T in self.Ts], bounds=self.bounds) if self.data is None else self.data
-        )
+        if self.data is None:
+            self.data = ein_eval(self.expr, *[T.eval() for T in self.Ts], bounds=self.bounds)
         return self.data
 
     # TODO: Make it prettier + delta reductions
@@ -175,20 +174,15 @@ class Ein(Expression):
             args = symbolic.make_indices(len(seed.shape) - len(free_args), used_args)
 
             expr = f"T({','.join(grad_args.split(','))},{','.join(args)})"
-            expr += f"<- T({','.join(free_args)},{','.join(args)}){'*'+rhs if len(rhs) > 0 else ''}"
+            expr += f" <- T({','.join(free_args)},{','.join(args)}){'*'+rhs if len(rhs) > 0 else ''}"
             bounds = {
                 **self.bounds,
                 **dict(zip(grad_args.split(","), T.shape)),
                 **dict(zip(args, seed.shape[-len(args) :])),
             }
-            print(expr)
+            print(expr, bounds)
 
-            new_seed = ein_eval(
-                expr,
-                seed,
-                *([T.eval() for T in self.Ts[:id]] + [T.eval() for T in self.Ts[id + 1 :]]),
-                bounds=bounds,
-            )
+            new_seed = ein_eval(expr, seed, *[T.eval() for T in self.Ts[:id] + self.Ts[id + 1 :]], bounds=bounds)
             T.grad(new_seed)
 
     def null(self) -> None:
